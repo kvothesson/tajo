@@ -1,3 +1,4 @@
+import type { StickView } from '../pointer';
 import { MUT } from '../sim/mutations';
 import { T } from '../sim/tuning';
 import type { Enemy, World } from '../sim/types';
@@ -6,9 +7,20 @@ import { C, ENEMY_COLOR } from './palette';
 
 type Ctx = CanvasRenderingContext2D;
 
+/** Host state the world knows nothing about, but the screen has to show. */
+export type Hud = {
+  stick: StickView | null;
+  muted: boolean;
+  paused: boolean;
+  /** Drives which control list the title screen shows. */
+  touch: boolean;
+};
+
+export type Box = { id: string; x: number; y: number; w: number; h: number };
+
 const FONT = 'ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace';
 
-export function render(ctx: Ctx, w: World, best: number): void {
+export function render(ctx: Ctx, w: World, best: number, hud: Hud): void {
   const { w: AW, h: AH } = w.arena;
 
   ctx.save();
@@ -54,9 +66,45 @@ export function render(ctx: Ctx, w: World, best: number): void {
   }
 
   if (w.phase !== 'title') drawHud(ctx, w, best);
-  if (w.phase === 'title') drawTitle(ctx, w, best);
+  if (w.phase === 'title') drawTitle(ctx, w, best, hud.touch);
   if (w.phase === 'choosing') drawChoices(ctx, w);
-  if (w.phase === 'dead') drawDead(ctx, w, best);
+  if (w.phase === 'dead') drawDead(ctx, w, best, hud.touch);
+
+  if (hud.stick !== null && w.phase === 'playing') drawStick(ctx, hud.stick);
+  if (hud.paused) drawPaused(ctx, w);
+  drawButtons(ctx, w, hud);
+}
+
+/**
+ * A thumb covers what it controls, so the stick is drawn as a ring at the origin and a
+ * knob under the finger: both stay visible around the hand.
+ */
+function drawStick(ctx: Ctx, s: StickView): void {
+  const dx = s.at.x - s.origin.x;
+  const dy = s.at.y - s.origin.y;
+  const l = Math.hypot(dx, dy);
+  const k = Math.min(l, s.radius);
+  const knob =
+    l < 0.001
+      ? { x: s.origin.x, y: s.origin.y }
+      : { x: s.origin.x + (dx / l) * k, y: s.origin.y + (dy / l) * k };
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.3;
+  glow(ctx, C.cyan, 1.5, () => {
+    ctx.beginPath();
+    ctx.arc(s.origin.x, s.origin.y, s.radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }, 0.1);
+  ctx.globalAlpha = 0.75;
+  glow(ctx, C.cyan, 2, () => {
+    ctx.beginPath();
+    ctx.arc(knob.x, knob.y, 16, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- helpers
@@ -507,40 +555,51 @@ function drawHud(ctx: Ctx, w: World, best: number): void {
   ctx.globalAlpha = 1;
 }
 
-function drawTitle(ctx: Ctx, w: World, best: number): void {
+function drawTitle(ctx: Ctx, w: World, best: number, touch: boolean): void {
   const W = w.arena.w;
   const H = w.arena.h;
   ctx.fillStyle = 'rgba(5,6,10,0.72)';
   ctx.fillRect(0, 0, W, H);
 
   const bob = Math.sin(w.t * 1.6) * 3;
+  const top = H * 0.5 - 150;
+  const rule = Math.min(210, W / 2 - 40);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   glow(ctx, C.cyan, 3, () => {
     ctx.beginPath();
-    ctx.moveTo(W / 2 - 210, H * 0.3 + 46 + bob);
-    ctx.lineTo(W / 2 + 210, H * 0.3 + 46 + bob);
+    ctx.moveTo(W / 2 - rule, top + 46 + bob);
+    ctx.lineTo(W / 2 + rule, top + 46 + bob);
     ctx.stroke();
   }, 0.3);
   ctx.restore();
 
-  text(ctx, 'TAJO', W / 2, H * 0.3 + bob, 86, C.player, 'center', 800);
+  text(ctx, 'TAJO', W / 2, top + bob, 86, C.player, 'center', 800);
   ctx.globalAlpha = 0.65;
-  text(ctx, 'no tenés arma. sos el arma.', W / 2, H * 0.3 + 74 + bob, 15, C.cyan, 'center', 500);
+  text(ctx, 'no tenés arma. sos el arma.', W / 2, top + 74 + bob, 15, C.cyan, 'center', 500);
   ctx.globalAlpha = 1;
 
-  const lines = [
-    ['WASD', 'moverse'],
-    ['MOUSE', 'apuntar'],
-    ['CLICK / ESPACIO', 'tajo (mata lo que atraviesa)'],
-    ['CLICK DER. / SHIFT', 'foco (ralentiza el tiempo)'],
-    ['R / P / M', 'reiniciar · pausa · silencio'],
-    ['', ''],
-    ['cada muerte', 'devuelve una carga'],
-    ['sin muertes', 'sin cargas'],
-  ];
+  const lines = touch
+    ? [
+        ['ARRASTRAR', 'moverse y apuntar'],
+        ['TOCAR', 'tajo (mata lo que atraviesa)'],
+        ['2.º DEDO', 'mantener = foco'],
+        ['', ''],
+        ['cada muerte', 'devuelve una carga'],
+        ['sin muertes', 'sin cargas'],
+      ]
+    : [
+        ['WASD / ARRASTRAR', 'moverse'],
+        ['MOUSE', 'apuntar'],
+        ['CLICK / ESPACIO', 'tajo (mata lo que atraviesa)'],
+        ['CLICK DER. / SHIFT', 'foco (ralentiza el tiempo)'],
+        ['R / P / M', 'reiniciar · pausa · silencio'],
+        ['', ''],
+        ['cada muerte', 'devuelve una carga'],
+        ['sin muertes', 'sin cargas'],
+      ];
   lines.forEach((l, i) => {
-    const y = H * 0.55 + i * 22;
+    const y = top + 160 + i * 22;
     ctx.globalAlpha = 0.9;
     text(ctx, l[0]!, W / 2 - 16, y, 13, C.gold, 'right', 700);
     ctx.globalAlpha = 0.62;
@@ -550,7 +609,7 @@ function drawTitle(ctx: Ctx, w: World, best: number): void {
 
   const pulse = 0.55 + Math.abs(Math.sin(w.t * 2.6)) * 0.45;
   ctx.globalAlpha = pulse;
-  text(ctx, 'CLICK PARA EMPEZAR', W / 2, H - 62, 18, C.gold, 'center');
+  text(ctx, touch ? 'TOCÁ PARA EMPEZAR' : 'CLICK PARA EMPEZAR', W / 2, H - 62, 18, C.gold, 'center');
   ctx.globalAlpha = 1;
 
   if (best > 0) {
@@ -584,7 +643,7 @@ function drawChoices(ctx: Ctx, w: World): void {
     ctx.restore();
 
     text(ctx, String(i + 1), b.x + 16, b.y + 22, 14, m.color, 'left');
-    text(ctx, m.name, b.x + b.w / 2, b.y + 58, 21, m.color, 'center', 800);
+    text(ctx, m.name, b.x + b.w / 2, b.y + b.h * 0.32, 21, m.color, 'center', 800);
 
     const words = m.desc.split(' ');
     const lines: string[] = [];
@@ -598,23 +657,39 @@ function drawChoices(ctx: Ctx, w: World): void {
     lines.push(cur.trim());
     ctx.globalAlpha = 0.75;
     lines.forEach((ln, j) => {
-      text(ctx, ln, b.x + b.w / 2, b.y + 98 + j * 19, 13, C.text, 'center', 500);
+      text(ctx, ln, b.x + b.w / 2, b.y + b.h * 0.545 + j * 19, 13, C.text, 'center', 500);
     });
     ctx.globalAlpha = 1;
   });
 }
 
+/**
+ * Three cards in a row, until the arena is too narrow to hold them at readable
+ * width; then they stack. Shrinking the row instead would push the mutation text
+ * under reading size on the screens that need it most.
+ */
 export function choiceBoxes(w: World): { x: number; y: number; w: number; h: number }[] {
-  const bw = 250;
-  const bh = 180;
+  const W = w.arena.w;
+  const H = w.arena.h;
   const gap = 26;
-  const total = 3 * bw + 2 * gap;
-  const x0 = (w.arena.w - total) / 2;
-  const y = w.arena.h * 0.38;
-  return [0, 1, 2].map((i) => ({ x: x0 + i * (bw + gap), y, w: bw, h: bh }));
+  const margin = 34;
+
+  const row = Math.min(250, (W - margin * 2 - gap * 2) / 3);
+  if (row >= 168) {
+    const bh = 180;
+    const x0 = (W - (3 * row + 2 * gap)) / 2;
+    const y = H * 0.38;
+    return [0, 1, 2].map((i) => ({ x: x0 + i * (row + gap), y, w: row, h: bh }));
+  }
+
+  const bw = Math.min(420, W - margin * 2);
+  const bh = Math.min(132, (H * 0.62 - gap * 2) / 3);
+  const x = (W - bw) / 2;
+  const y0 = H * 0.34;
+  return [0, 1, 2].map((i) => ({ x, y: y0 + i * (bh + gap), w: bw, h: bh }));
 }
 
-function drawDead(ctx: Ctx, w: World, best: number): void {
+function drawDead(ctx: Ctx, w: World, best: number, touch: boolean): void {
   const W = w.arena.w;
   const H = w.arena.h;
   const fade = clamp(w.deadTimer / 0.7, 0, 1);
@@ -647,8 +722,95 @@ function drawDead(ctx: Ctx, w: World, best: number): void {
 
   const pulse = 0.5 + Math.abs(Math.sin(w.t * 2.6)) * 0.5;
   ctx.globalAlpha = pulse * clamp((w.deadTimer - 0.9) / 0.4, 0, 1);
-  text(ctx, 'CLICK PARA OTRA', W / 2, H - 66, 18, C.gold, 'center');
+  text(ctx, touch ? 'TOCÁ PARA OTRA' : 'CLICK PARA OTRA', W / 2, H - 66, 18, C.gold, 'center');
   ctx.globalAlpha = 1;
+}
+
+/**
+ * Pointer targets for the things that were keyboard-only: pause, mute, and giving up.
+ * Exported so the host can hit-test exactly what was drawn, the same deal as
+ * `choiceBoxes`. Restart only exists while paused, so a stray tap mid-run cannot end it.
+ */
+export function hudButtons(w: World, paused: boolean): Box[] {
+  const size = 46;
+  const gap = 10;
+  const pad = 24;
+  const y = w.arena.h - pad - size;
+  const boxes: Box[] = [
+    { id: 'pause', x: w.arena.w - pad - size * 2 - gap, y, w: size, h: size },
+    { id: 'mute', x: w.arena.w - pad - size, y, w: size, h: size },
+  ];
+  if (paused) {
+    boxes.push({ id: 'restart', x: w.arena.w / 2 - 96, y: w.arena.h / 2 + 34, w: 192, h: 46 });
+  }
+  return boxes;
+}
+
+function drawButtons(ctx: Ctx, w: World, hud: Hud): void {
+  if (w.phase === 'title') return;
+  const boxes = hudButtons(w, hud.paused);
+
+  for (const b of boxes) {
+    panel(ctx, b.x, b.y, b.w, b.h);
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    ctx.strokeStyle = C.dim;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
+    ctx.globalAlpha = 1;
+
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    ctx.strokeStyle = C.text;
+    ctx.fillStyle = C.text;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+
+    if (b.id === 'pause') {
+      if (hud.paused) {
+        poly(ctx, [
+          { x: cx - 6, y: cy - 9 },
+          { x: cx + 9, y: cy },
+          { x: cx - 6, y: cy + 9 },
+        ]);
+        ctx.fill();
+      } else {
+        ctx.fillRect(cx - 7, cy - 9, 5, 18);
+        ctx.fillRect(cx + 2, cy - 9, 5, 18);
+      }
+    } else if (b.id === 'mute') {
+      poly(ctx, [
+        { x: cx - 10, y: cy - 4 },
+        { x: cx - 5, y: cy - 4 },
+        { x: cx + 1, y: cy - 10 },
+        { x: cx + 1, y: cy + 10 },
+        { x: cx - 5, y: cy + 4 },
+        { x: cx - 10, y: cy + 4 },
+      ]);
+      ctx.fill();
+      ctx.beginPath();
+      if (hud.muted) {
+        ctx.moveTo(cx + 5, cy - 6);
+        ctx.lineTo(cx + 13, cy + 6);
+        ctx.moveTo(cx + 13, cy - 6);
+        ctx.lineTo(cx + 5, cy + 6);
+      } else {
+        ctx.arc(cx + 2, cy, 7, -0.9, 0.9);
+        ctx.moveTo(cx + 10, cy - 7);
+        ctx.arc(cx + 2, cy, 11, -0.8, 0.8);
+      }
+      ctx.stroke();
+    } else {
+      text(ctx, 'REINICIAR', cx, cy, 16, C.gold, 'center');
+    }
+    ctx.restore();
+  }
+}
+
+function drawPaused(ctx: Ctx, w: World): void {
+  ctx.fillStyle = 'rgba(5,6,10,0.7)';
+  ctx.fillRect(0, 0, w.arena.w, w.arena.h);
+  text(ctx, 'PAUSA', w.arena.w / 2, w.arena.h / 2 - 14, 32, C.text, 'center');
 }
 
 // ---------------------------------------------------------------- colour util

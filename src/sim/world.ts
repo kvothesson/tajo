@@ -1,5 +1,6 @@
 import { Rng } from '../rng';
 import { ENEMY_COLOR, C } from '../render/palette';
+import { DEFAULT_ARENA, type Arena } from './arena';
 import { MUTATIONS } from './mutations';
 import { T } from './tuning';
 import type {
@@ -30,16 +31,16 @@ import {
 
 // ---------------------------------------------------------------- creation
 
-export function createWorld(seed = 1): World {
+export function createWorld(seed = 1, arena: Arena = DEFAULT_ARENA): World {
   const w: World = {
     seed,
     rng: new Rng(seed),
     t: 0,
     frame: 0,
     phase: 'title',
-    arena: { w: T.arena.w, h: T.arena.h },
+    arena: { w: arena.w, h: arena.h },
 
-    player: makePlayer(),
+    player: makePlayer(arena),
     enemies: [],
     projectiles: [],
     particles: [],
@@ -77,9 +78,9 @@ export function createWorld(seed = 1): World {
   return w;
 }
 
-function makePlayer() {
+function makePlayer(arena: Arena) {
   return {
-    pos: v(T.arena.w / 2, T.arena.h / 2),
+    pos: v(arena.w / 2, arena.h / 2),
     vel: v(0, 0),
     aim: -Math.PI / 2,
     hp: T.player.maxHp,
@@ -104,12 +105,54 @@ function makePlayer() {
   };
 }
 
+/**
+ * Reshape the arena in place. The run keeps going: everything positional is remapped
+ * to the same relative spot in the new rectangle, which is what "MUST maintain the
+ * game state when the window is resized" comes down to. Radii and speeds are feel
+ * constants and deliberately do not scale, so a rotated phone does not hand the
+ * player a bigger blade.
+ */
+export function resizeArena(w: World, arena: Arena): void {
+  if (!(arena.w > 0) || !(arena.h > 0)) {
+    throw new Error(`resizeArena: arena must be positive, got ${arena.w}x${arena.h}`);
+  }
+  const sx = arena.w / w.arena.w;
+  const sy = arena.h / w.arena.h;
+  if (sx === 1 && sy === 1) return;
+
+  const remap = (p: Vec): void => {
+    p.x *= sx;
+    p.y *= sy;
+  };
+
+  remap(w.player.pos);
+  remap(w.player.dashStart);
+  for (const e of w.enemies) remap(e.pos);
+  for (const p of w.projectiles) remap(p.pos);
+  for (const p of w.particles) remap(p.pos);
+  for (const s of w.slashes) {
+    remap(s.a);
+    remap(s.b);
+  }
+  for (const b of w.burns) remap(b.pos);
+  for (const p of w.pickups) remap(p.pos);
+  for (const t of w.texts) remap(t.pos);
+  for (const r of w.rings) remap(r.pos);
+
+  w.arena.w = arena.w;
+  w.arena.h = arena.h;
+
+  const pad = T.arena.pad;
+  w.player.pos.x = clamp(w.player.pos.x, pad, arena.w - pad);
+  w.player.pos.y = clamp(w.player.pos.y, pad, arena.h - pad);
+}
+
 export function startRun(w: World, seed: number): void {
   w.seed = seed;
   w.rng = new Rng(seed);
   w.t = 0;
   w.phase = 'playing';
-  w.player = makePlayer();
+  w.player = makePlayer(w.arena);
   w.enemies = [];
   w.projectiles = [];
   w.particles = [];
@@ -381,7 +424,10 @@ function stepPlayer(w: World, input: Input, dt: number, realDt: number): void {
 
   // Walking
   const accel = p.stun > 0 ? 0 : T.player.accel;
-  const mv = norm(input.move);
+  // Clamped, not normalised: a keyboard sends unit vectors either way, but a thumb on
+  // a stick sends partial ones and a half-deflected stick should walk, not sprint.
+  const mvLen = Math.hypot(input.move.x, input.move.y);
+  const mv = mvLen > 1 ? scale(input.move, 1 / mvLen) : input.move;
   p.vel = add(p.vel, scale(mv, accel * dt));
   const damp = Math.exp(-T.player.friction * dt);
   p.vel = scale(p.vel, damp);

@@ -13,14 +13,25 @@ Then open <http://localhost:5178>.
 
 ## Controls
 
+Keyboard and mouse:
+
 | | |
 |---|---|
-| `WASD` | move |
+| `WASD`, or drag with the mouse held | move |
 | mouse | aim |
 | left click / `Space` | tajo (kills everything the line crosses) |
 | right click / `Shift` | foco (slows time while the meter lasts) |
 | `1` `2` `3` | pick a mutation |
 | `R` | restart · `P` pause · `M` mute |
+
+Touch:
+
+| | |
+|---|---|
+| drag anywhere | move and aim: a stick plants where your thumb lands, and it is analog |
+| tap | tajo |
+| second finger, held | foco. Your other thumb keeps moving while it is down |
+| buttons, bottom right | pause and mute; restart lives inside the pause screen |
 
 ## The rules that make it a game
 
@@ -38,6 +49,15 @@ Then open <http://localhost:5178>.
     Bait it into a crowd, or kill it before the fuse.
 - Twelve mutations, three offered every third wave, never repeated in a run.
 
+## It fits the screen it lands on
+
+There is no fixed playfield. The arena keeps a constant area and takes its shape from
+the viewport, clamped so neither axis collapses into a corridor, so a phone held upright
+gets a tall room and a monitor gets a wide one and both fight the same amount of space.
+Rotating the device reshapes the arena mid-run without ending it: everything on the
+board is remapped to the same relative spot. The mutation cards stack when there is no
+room for a row.
+
 ## Nothing in here is an asset
 
 No images, no audio files, no fonts. Every shape is drawn with canvas paths from code and
@@ -51,7 +71,7 @@ simulation in `src/sim/` is pure and seeded, rendering is a read-only view of it
 `npm test` runs the entire game headlessly with no browser.
 
 ```bash
-npm test        # 13 sim tests, ~1s
+npm test        # 34 sim tests, ~1s
 npm run typecheck
 npm run build
 ```

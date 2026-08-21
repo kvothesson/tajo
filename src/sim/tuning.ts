@@ -3,7 +3,13 @@
  * Change values in this file, never inline in world.ts.
  */
 export const T = {
-  arena: { w: 1000, h: 620, pad: 26 },
+  /**
+   * The arena borrows its shape from the viewport but keeps a constant `area`,
+   * so a portrait phone and a widescreen monitor fight the same amount of room.
+   * `minAspect`/`maxAspect` stop either axis from collapsing into a corridor;
+   * past the clamp the host letterboxes. 1000x620 is the reference landscape.
+   */
+  arena: { area: 1000 * 620, minAspect: 0.5, maxAspect: 2.2, pad: 26 },
 
   dt: 1 / 60,
 

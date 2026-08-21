@@ -18,6 +18,8 @@ dash charge, so the game is a chain: stop killing and you run out of moves.
 
 ```
 src/rng.ts            seeded PRNG
+src/pointer.ts        touch/mouse stick + tap state machine (pure)
+src/sim/arena.ts      viewport shape -> arena rectangle (pure)
 src/sim/tuning.ts     every number that affects feel
 src/sim/types.ts      world shape
 src/sim/vec.ts        vector maths
@@ -29,6 +31,33 @@ src/audio/sfx.ts      Web Audio synthesis + procedural music
 src/main.ts           canvas, input, fixed-timestep loop, debug hook
 tests/sim.test.ts     headless, no browser
 ```
+
+## Arena contract
+
+The arena is **not** a fixed rectangle. `arenaFor(viewW, viewH)` gives it a constant
+area (`T.arena.area`) and the viewport's aspect, clamped to `minAspect`/`maxAspect`;
+the host letterboxes whatever the clamp leaves over. Read the size from `w.arena`,
+never from `T.arena` (which only carries `area`, the clamps and `pad`).
+
+`resizeArena(w, arena)` reshapes a live world: everything positional is remapped to the
+same relative spot, radii and speeds do not scale. A resize must never end a run.
+
+## Controls contract
+
+Every interaction must be reachable with touch alone and with a mouse alone. Nothing may
+be keyboard-only, so anything new that binds a key also needs a pointer target.
+
+`PointerRig` owns the pointer scheme and is pure: the first pointer is a floating stick
+driving move and aim, a press that leaves without travelling is a tap and taps dash, a
+second pointer dashes on press and holds the focus. A mouse dashes on press instead (the
+host passes `tapDashes: false`) and moves by dragging, so the desktop feel is untouched.
+
+`input.move` is clamped to length 1, not normalised: the stick is analog and a half
+deflection must walk. Keyboard input still arrives as unit vectors, so nothing changed
+for it.
+
+Pointer targets that are drawn must be hit-tested from the same function that drew them
+(`choiceBoxes`, `hudButtons`), never from coordinates copied into the host.
 
 ## Loop contract
 
@@ -44,6 +73,7 @@ Fixed timestep of 1/60. `main.ts` accumulates `realDt * world.timeScale`, so slo
 `window.__game` is exposed in the browser:
 
 ```js
+__game.pump(120)         // 2 seconds of *full* frames, held input included
 __game.setPaused(true)
 __game.world.player.hp = 99
 __game.stepN(120)        // advance 2 seconds headlessly
